@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string-array name="lst_data_sel">
+        <item>Generated data</item>
+        <item>Million domain names</item>
+        <item>DB Pedia Labels</item>
+    </string-array>
+
+    <string-array name="lst_idx_sel">
+        <item>basix</item>
+        <item>bfox</item>
+        <item>bfqx</item>
+        <item>dfox</item>
+        <item>dfos</item>
+        <item>dfqx</item>
+        <item>bft</item>
+        <item>dft</item>
+        <item>linex</item>
+        <item>none</item>
+    </string-array>
+
+    <string-array name="lst_charset">
+        <item>Printable</item>
+        <item>a to z</item>
+        <item>0 to 9</item>
+        <item>Octet gap</item>
+        <item>Random all</item>
+        <item>Seqential all</item>
+    </string-array>
+
+</resources>

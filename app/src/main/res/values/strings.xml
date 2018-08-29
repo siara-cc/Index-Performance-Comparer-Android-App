@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Index Research</string>
+    <string name="btn_start">Start</string>
+    <string name="tv_data_source">Data Source and Max key length:</string>
+    <string name="tv_index">Index selection (ART, Index1, Index2):</string>
+    <string name="tv_art">ART?</string>
+    <string name="tv_params">Count, Key len, Value len, Charset (for generate):</string>
+    <string name="tv_put_times">Put (ms):</string>
+    <string name="tv_get_times">Get (ms):</string>
+    <string name="tv_out">Output:</string>
+    <string name="et_count">1000000</string>
+    <string name="et_key_len">8</string>
+    <string name="et_value_len">4</string>
+    <string name="et_idx_len">4</string>
+</resources>
