@@ -12,4 +12,5 @@
     <string name="et_key_len">8</string>
     <string name="et_value_len">4</string>
     <string name="et_idx_len">4</string>
+    <string name="tv_default_time_taken">999999.999</string>
 </resources>

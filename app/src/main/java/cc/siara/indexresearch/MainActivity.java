@@ -1,8 +1,10 @@
 package cc.siara.indexresearch;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.res.AssetManager;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.os.Process;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -52,6 +54,8 @@ public class MainActivity extends Activity {
     }
 
     BgRunner bgRunner = null;
+    PowerManager pm;
+    PowerManager.WakeLock wl;
     void initControls() {
 
         View v;
@@ -174,6 +178,9 @@ public class MainActivity extends Activity {
         ((Button)v).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(final View view) {
+                view.setEnabled(false);
+                //getWindow().setSustainedPerformanceMode(true);
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 bgRunner = new BgRunner();
                 bgRunner.start();
             }
@@ -208,25 +215,22 @@ public class MainActivity extends Activity {
         @Override
         public void run() {
             final Button b = (Button) findViewById(R.id.btnStart);
-            b.requestFocus();
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    b.setEnabled(false);
-                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                }
-            });
+            pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "My Tag");
+            wl.acquire();
             Log.i(App.TAG, "Max Priority:"+getThreadGroup().getMaxPriority());
             setPriority(getThreadGroup().getMaxPriority());
-            android.os.Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
+            android.os.Process.setThreadPriority(-20);
             runNative(App.IS_ART, App.DATA_SEL, App.IDX2_SEL,
                     App.IDX3_SEL, App.IDX_LEN, App.NUM_ENTRIES,
                     App.CHAR_SET, App.KEY_LEN, App.VALUE_LEN);
+            wl.release();
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     b.setEnabled(true);
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    //getWindow().setSustainedPerformanceMode(false);
                 }
             });
             bgRunner = null;

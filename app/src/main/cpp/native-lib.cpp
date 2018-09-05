@@ -1,6 +1,9 @@
 #include <jni.h>
 #include <string>
 #include <unistd.h>
+#include <sys/syscall.h>
+#include <sys/resource.h>
+#include <pthread.h>
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <stdlib.h>
@@ -39,8 +42,8 @@ using namespace std::tr1;
 static volatile int IMPORT_FILE = 0;
 static volatile long NUM_ENTRIES = 100;
 static volatile int CHAR_SET = 2;
-static volatile byte KEY_LEN = 8;
-static volatile byte VALUE_LEN = 4;
+static volatile int KEY_LEN = 8;
+static volatile int VALUE_LEN = 4;
 static volatile int USE_HASHTABLE = 0;
 static volatile int IDX2_SEL = 1;
 static volatile int IDX3_SEL = 2;
@@ -61,31 +64,31 @@ void print(const char *s, jobject o) {
     (*e).CallVoidMethod(o, methid2, jstr);
 }
 
-size_t insert(unordered_map<string, string>& m, byte *data_buf, jobject obj) {
+unsigned long insert(unordered_map<string, string>& m, byte *data_buf, jobject obj) {
     char k[KEY_LEN + 1];
     char v[VALUE_LEN + 1];
-    size_t ret = 0;
+    unsigned long ret = 0;
     for (unsigned long l = 0; l < NUM_ENTRIES; l++) {
 
         if (CHAR_SET == CS_PRINTABLE) {
             for (int i = 0; i < KEY_LEN; i++)
-                k[i] = (char) (32 + (rand() % 95));
+                k[i] = (32 + (rand() % 95));
             k[KEY_LEN] = 0;
         } else if (CHAR_SET == CS_ALPHA_ONLY) {
             for (int i = 0; i < KEY_LEN; i++)
-                k[i] = (char) (97 + (rand() % 26));
+                k[i] = (97 + (rand() % 26));
             k[KEY_LEN] = 0;
         } else if (CHAR_SET == CS_NUMBER_ONLY) {
             for (int i = 0; i < KEY_LEN; i++)
-                k[i] = (char) (48 + (rand() % 10));
+                k[i] = (48 + (rand() % 10));
             k[KEY_LEN] = 0;
         } else if (CHAR_SET == CS_ONE_PER_OCTET) {
             for (int i = 0; i < KEY_LEN; i++)
-                k[i] = (char) (((rand() % 32) << 3) | 0x07);
+                k[i] = (((rand() % 32) << 3) | 0x07);
             k[KEY_LEN] = 0;
         } else if (CHAR_SET == CS_255_RANDOM) {
             for (int i = 0; i < KEY_LEN; i++)
-                k[i] = (char) ((rand() % 255));
+                k[i] = ((rand() % 255));
             k[KEY_LEN] = 0;
             for (int i = 0; i < KEY_LEN; i++) {
                 if (k[i] == 0)
@@ -93,10 +96,10 @@ size_t insert(unordered_map<string, string>& m, byte *data_buf, jobject obj) {
             }
         } else if (CHAR_SET == CS_255_DENSE) {
             KEY_LEN = 4;
-            k[0] = (char) ((l >> 24) & 0xFF);
-            k[1] = (char) ((l >> 16) & 0xFF);
-            k[2] = (char) ((l >> 8) & 0xFF);
-            k[3] = (char) ((l & 0xFF));
+            k[0] = ((l >> 24) & 0xFF);
+            k[1] = ((l >> 16) & 0xFF);
+            k[2] = ((l >> 8) & 0xFF);
+            k[3] = ((l & 0xFF));
             if (k[0] == 0)
                 k[0]++;
             if (k[1] == 0)
@@ -107,8 +110,15 @@ size_t insert(unordered_map<string, string>& m, byte *data_buf, jobject obj) {
                 k[3]++;
             k[4] = 0;
         }
-        for (int16_t i = 0; i < VALUE_LEN; i++)
-            v[VALUE_LEN - i - 1] = k[i];
+        if (VALUE_LEN <= KEY_LEN) {
+            for (int i = 0; i < VALUE_LEN; i++)
+                v[VALUE_LEN - i - 1] = k[i];
+        } else {
+            for (int i = 0; i < KEY_LEN; i++)
+                v[KEY_LEN - i - 1] = k[i];
+            for (int i = KEY_LEN; i < VALUE_LEN; i++)
+                v[VALUE_LEN - i - 1] = '.';
+        }
         v[VALUE_LEN] = 0;
         //itoa(rand(), v, 10);
         //itoa(rand(), v + strlen(v), 10);
@@ -128,7 +138,6 @@ size_t insert(unordered_map<string, string>& m, byte *data_buf, jobject obj) {
             data_buf[ret++] = VALUE_LEN;
             memcpy(data_buf + ret, v, VALUE_LEN);
             ret += VALUE_LEN;
-            NUM_ENTRIES++;
         }
     }
     if (USE_HASHTABLE)
@@ -164,7 +173,7 @@ size_t loadFile(unordered_map<string, string>& m, byte *data_buf, jobject obj) {
         } else if (c == '\n') {
             buf[ctr] = 0;
             ctr = 0;
-            byte len = strlen(key);
+            int len = strlen(key);
             if (len > 0 && len <= KEY_LEN) {
                 //if (m[key].length() > 0)
                 //    cout << key << ":" << value << endl;
@@ -246,6 +255,25 @@ double timedifference(long t0, long t1) {
     return ret;
 }
 
+void set_affinity() {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    CPU_SET(4, &mask);
+    CPU_SET(5, &mask);
+    CPU_SET(6, &mask);
+    CPU_SET(7, &mask);
+    sched_setaffinity(0, sizeof(mask), &mask);
+}
+
+void set_thread_priority() {
+    nice(-20);
+    int policy = 0;
+    struct sched_param param;
+    pthread_getschedparam(pthread_self(), &policy, &param);
+    param.sched_priority = sched_get_priority_max(policy);
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+}
+
 extern "C"
 JNIEXPORT void JNICALL
 Java_cc_siara_indexresearch_MainActivity_initNative(
@@ -257,6 +285,9 @@ Java_cc_siara_indexresearch_MainActivity_initNative(
     objcls = (*env).GetObjectClass(obj);
     methid1 = (*env).GetMethodID(objcls, "appendMessageWithEOL", "(Ljava/lang/String;)V");
     methid2 = (*env).GetMethodID(objcls, "appendMessage", "(Ljava/lang/String;)V");
+    nice(-20);
+    set_affinity();
+    set_thread_priority();
 }
 
 void checkValue(const char *key, int key_len, const char *val, int val_len,
@@ -279,9 +310,12 @@ void checkValue(const char *key, int key_len, const char *val, int val_len,
 template<class T1, class T2>
 void runTests(int isART, byte *data_buf, int64_t data_sz, bplus_tree_handler<T1> *lx, bplus_tree_handler<T2> *dx,
               unordered_map<string, string>& m, jobject obj) {
+
     char out_msg[200];
     long start, stop;
     unordered_map<string, string>::iterator it1;
+
+    set_thread_priority();
 
     art_tree at;
     if (isART) {
@@ -312,6 +346,8 @@ void runTests(int isART, byte *data_buf, int64_t data_sz, bplus_tree_handler<T1>
         //getchar();
     }
 
+    set_thread_priority();
+
     if (lx != NULL) {
         ctr = 0;
         start = getTimeVal();
@@ -337,6 +373,8 @@ void runTests(int isART, byte *data_buf, int64_t data_sz, bplus_tree_handler<T1>
         print(out_msg, obj);
         //getchar();
     }
+
+    set_thread_priority();
 
     if (dx != NULL) {
         ctr = 0;
@@ -366,6 +404,8 @@ void runTests(int isART, byte *data_buf, int64_t data_sz, bplus_tree_handler<T1>
 
     int null_ctr = 0;
     int cmp = 0;
+
+    set_thread_priority();
 
     if (isART) {
         cmp = 0;
@@ -401,6 +441,83 @@ void runTests(int isART, byte *data_buf, int64_t data_sz, bplus_tree_handler<T1>
         sprintf(out_msg, "Null: %d, Cmp: %d\n", null_ctr, cmp);
         print(out_msg, obj);
         //getchar();
+    }
+
+    if (isART) {
+        cmp = 0;
+        ctr = 0;
+        null_ctr = 0;
+        start = getTimeVal();
+        if (USE_HASHTABLE) {
+            it1 = m.begin();
+            for (; it1 != m.end(); ++it1) {
+                int len;
+                char *value = (char *) art_search(&at,
+                                                  (unsigned char*) it1->first.c_str(), (int) it1->first.length() + 1,
+                                                  &len);
+                checkValue(it1->first.c_str(), (int) it1->first.length() + 1,
+                           it1->second.c_str(), (int) it1->second.length(), value, len, null_ctr, cmp);
+                ctr++;
+            }
+        } else {
+            for (int64_t pos = 0; pos < data_sz; pos++) {
+                int len;
+                byte key_len = data_buf[pos++];
+                byte value_len = data_buf[pos + key_len + 1];
+                char *value = (char *) art_search(&at, data_buf + pos, key_len + 1, &len);
+                checkValue((char *) data_buf + pos, key_len + 1,
+                           (char *) data_buf + pos + key_len + 2, value_len, value, len, null_ctr, cmp);
+                pos += key_len + value_len + 1;
+                ctr++;
+            }
+        }
+        stop = getTimeVal();
+        sprintf(out_msg, "ART Get Time: %.3lf\n", timedifference(start, stop));
+        print(out_msg, obj);
+        sprintf(out_msg, "Null: %d, Cmp: %d\n", null_ctr, cmp);
+        print(out_msg, obj);
+        //getchar();
+    }
+
+    set_thread_priority();
+
+    if (lx != NULL) {
+        cmp = 0;
+        ctr = 0;
+        null_ctr = 0;
+        it1 = m.begin();
+        start = getTimeVal();
+        if (USE_HASHTABLE) {
+            for (; it1 != m.end(); ++it1) {
+                int16_t len;
+                char *value = lx->get(it1->first.c_str(), it1->first.length(), &len);
+                checkValue(it1->first.c_str(), (int) it1->first.length() + 1,
+                           it1->second.c_str(), (int) it1->second.length(), value, len, null_ctr, cmp);
+                ctr++;
+            }
+        } else {
+            for (int64_t pos = 0; pos < data_sz; pos++) {
+                int16_t len;
+                byte key_len = data_buf[pos++];
+                byte value_len = data_buf[pos + key_len + 1];
+                char *value = lx->get((char *) data_buf + pos, key_len, &len);
+                checkValue((char *) data_buf + pos, key_len,
+                           (char *) data_buf + pos + key_len + 2, value_len, value, len, null_ctr, cmp);
+                pos += key_len + value_len + 1;
+                ctr++;
+            }
+        }
+        stop = getTimeVal();
+
+        sprintf(out_msg, "Ix1 Get Time: %.3lf\n", timedifference(start, stop));
+        print(out_msg, obj);
+        sprintf(out_msg, "Null: %d, Cmp: %d\n", null_ctr, cmp);
+        print(out_msg, obj);
+        lx->printStats(NUM_ENTRIES);
+        lx->printNumLevels();
+        lx->printCounts();
+        sprintf(out_msg, "Root filled size: %d\n", util::getInt(lx->root_block + 1));
+        print(out_msg, obj);
     }
 
     if (lx != NULL) {
@@ -440,6 +557,48 @@ void runTests(int isART, byte *data_buf, int64_t data_sz, bplus_tree_handler<T1>
         lx->printCounts();
         sprintf(out_msg, "Root filled size: %d\n", util::getInt(lx->root_block + 1));
         print(out_msg, obj);
+    }
+
+    set_thread_priority();
+
+    if (dx != NULL) {
+        cmp = 0;
+        ctr = 0;
+        null_ctr = 0;
+        //bfos::count = 0;
+        it1 = m.begin();
+        start = getTimeVal();
+        if (USE_HASHTABLE) {
+            for (; it1 != m.end(); ++it1) {
+                int16_t len;
+                char *value = dx->get(it1->first.c_str(), it1->first.length(), &len);
+                checkValue(it1->first.c_str(), (int) it1->first.length() + 1,
+                           it1->second.c_str(), (int) it1->second.length(), value, len, null_ctr, cmp);
+                ctr++;
+            }
+        } else {
+            for (int64_t pos = 0; pos < data_sz; pos++) {
+                int16_t len;
+                byte key_len = data_buf[pos++];
+                byte value_len = data_buf[pos + key_len + 1];
+                char *value = dx->get((char *) data_buf + pos, key_len, &len);
+                checkValue((char *) data_buf + pos, key_len,
+                           (char *) data_buf + pos + key_len + 2, value_len, value, len, null_ctr, cmp);
+                pos += key_len + value_len + 1;
+                ctr++;
+            }
+        }
+        stop = getTimeVal();
+        sprintf(out_msg, "Ix2 Get Time: %.3lf\n", timedifference(start, stop));
+        print(out_msg, obj);
+        sprintf(out_msg, "Null: %d, Cmp: %d\n", null_ctr, cmp);
+        print(out_msg, obj);
+        dx->printStats(NUM_ENTRIES);
+        dx->printNumLevels();
+        dx->printCounts();
+        sprintf(out_msg, "Root filled size: %d\n", util::getInt(dx->root_block + 1));
+        print(out_msg, obj);
+        //getchar();
     }
 
     if (dx != NULL) {
@@ -509,6 +668,8 @@ Java_cc_siara_indexresearch_MainActivity_runNative(
     long start, stop;
     size_t data_alloc_sz = (IMPORT_FILE == 0 ? (KEY_LEN + VALUE_LEN + 3) * NUM_ENTRIES
                                              : getImportFileSize() + 80000000);
+    sprintf(out_msg, "Alloc Size: size: %ld", data_alloc_sz);
+    LOGI("%s", out_msg);
     byte *data_buf = (byte *) malloc(data_alloc_sz);
     size_t data_sz = 0;
 
